@@ -1,15 +1,16 @@
 import { Plugin } from "@elizaos/core";
-import transferToken from "./actions/transfer.ts";
-import discoverCoins from "./actions/discover.ts";
-import { WalletProvider, walletProvider } from "./providers/wallet.ts";
-import { executeSwap } from "./actions/swap.ts";
+import { transfer } from "./actions/transfer";
+import discoverCoins from "./actions/discover";
+import { WalletProvider } from "./providers/wallet";
+import { executeSwap } from "./actions/swap";
 
-export { WalletProvider, transferToken as TransferSuiToken };
+export { WalletProvider };
+export { transfer as TransferSuiToken };
 
 export const suiPlugin: Plugin = {
     name: "sui",
     description: "Sui Plugin for Eliza",
-    actions: [executeSwap, transferToken, discoverCoins],
+    actions: [executeSwap, transfer, discoverCoins],
     evaluators: [],
     providers: [],
 };

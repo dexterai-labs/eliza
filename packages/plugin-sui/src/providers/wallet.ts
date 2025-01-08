@@ -224,9 +224,7 @@ const walletProvider: Provider = {
 
         try {
             const suiClient = new SuiClient({
-                url: getFullnodeUrl(
-                    runtime.getSetting("SUI_NETWORK") as SuiNetwork
-                ),
+                url: "https://fullnode.mainnet.sui.io:443",
             });
             const provider = new WalletProvider(
                 suiClient,

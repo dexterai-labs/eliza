@@ -125,3 +125,30 @@ export async function retry<T>(
     }
     throw new Error("Retry failed");
 }
+
+export async function getTokenDetails(tokenType: string): Promise<string> {
+    try {
+        // Make API call
+        const response = await fetch(
+            `https://api.insidex.trade/external/query/${tokenType}`
+        );
+        const data = await response.json();
+
+        // Filter for coin type entries
+        const coinEntries = data.filter((entry) => entry.type === "coin");
+
+        // If no coin entries found, throw error
+        if (coinEntries.length === 0) {
+            throw new Error("No coin type found in response");
+        }
+
+        // Get first coin entry and construct coinType
+        const firstCoin = coinEntries[0];
+        const coinType = firstCoin.coinType;
+
+        return coinType;
+    } catch (error) {
+        console.error("Error fetching token details:", error);
+        throw error;
+    }
+}

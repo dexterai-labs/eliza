@@ -1,12 +1,13 @@
 import type { Router } from "aftermath-ts-sdk";
 import { Aftermath } from "aftermath-ts-sdk";
-// import {
-//     Transaction,
-//     TransactionObjectArgument,
-// } from "@mysten/sui/transactions";
+import {
+    Transaction,
+    TransactionObjectArgument,
+} from "@mysten/sui/transactions";
 import { elizaLogger } from "@elizaos/core";
 
-const SWAP_FEE_WALLET = "0x..."; // Add your fee wallet address here
+const SWAP_FEE_WALLET =
+    "0x3b2fb00f5cf3f4b948ee437e8d8a3d0db37f91cb0b94526e38b414a3881479ea"; // Add your fee wallet address here
 
 class AftermathSdk {
     sdk: Aftermath;
@@ -57,27 +58,26 @@ class AftermathSdk {
         return tx;
     };
 
-    //     getSwapTxnWithCoinOut = async (
-    //         tx: Transaction,
-    //         coinIn: TransactionObjectArgument,
-    //         route: any,
-    //         address: string,
-    //         slippage: number
-    //     ) => {
-    //         const data = await this.router.addTransactionForCompleteTradeRoute({
-    //             tx,
-    //             coinInId: coinIn,
-    //             walletAddress: address,
-    //             completeRoute: route,
-    //             slippage,
-    //         });
+    getSwapTxnWithCoinOut = async (
+        tx: Transaction,
+        coinIn: TransactionObjectArgument,
+        route: any,
+        address: string,
+        slippage: number
+    ) => {
+        const data = await this.router.addTransactionForCompleteTradeRoute({
+            tx,
+            coinInId: coinIn,
+            walletAddress: address,
+            completeRoute: route,
+            slippage,
+        });
 
-    //         return {
-    //             tx: data.tx,
-    //             coinOut: data.coinOutId,
-    //         };
-    //     };
-    // }
+        return {
+            tx: data.tx,
+            coinOut: data.coinOutId,
+        };
+    };
 }
 
 const aftermathSdk = new AftermathSdk();

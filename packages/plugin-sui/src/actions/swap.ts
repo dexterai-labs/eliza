@@ -10,12 +10,13 @@ import {
     type Action,
     elizaLogger,
 } from "@elizaos/core";
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
-// import { Transaction } from "@mysten/sui/transactions";
+import { SuiClient } from "@mysten/sui/client";
+import { Transaction } from "@mysten/sui/transactions";
 import { walletProvider } from "../providers/wallet";
 import { validateAction } from "../validators/actionValidator";
-import { getCoinDecimals } from "../utils";
+import { getCoinDecimals, getTokenDetails } from "../utils";
 import aftermathSdk from "../sdk/aftermath";
+import { SUI_TYPE_ARG } from "@mysten/sui/utils";
 
 async function swapToken(
     client: SuiClient,
@@ -23,9 +24,8 @@ async function swapToken(
     inputTokenType: string,
     outputTokenType: string,
     amount: number,
-    slippageBps: number = 50
-): Promise<// { tx: Transaction; route: any }
-any> {
+    slippageBps: number = 5000000
+): Promise<{ tx: Transaction; route: any }> {
     try {
         const decimals = await getCoinDecimals(client, inputTokenType);
         const amountBigInt = BigInt(amount * Math.pow(10, decimals));
@@ -68,12 +68,47 @@ const swapTemplate = `Respond with a JSON markdown block containing only the ext
 Example response:
 \`\`\`json
 {
-    "inputTokenType": "0x2::sui::SUI",
-    "outputTokenType": "0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::USDC",
+    "inputTokenType": "SUI",
+    "outputTokenType": "USDC",
     "amount": 1.5,
-    "slippageBps": 50
+    "slippageBps": 50,
+    "amountScalingFactor": -1
 }
 \`\`\`
+
+The amountScalingFactor should be determined by analyzing words that indicate portions:
+- Words meaning "all" or "complete amount" (scaling factor: 1.0):
+  • all, entire, complete, total, everything, max, maximum, whole
+
+- Words meaning "half" (scaling factor: 0.5):
+  • half, 50%, fifty percent, one-half, halfway
+
+- Words meaning "third" (scaling factor: 0.333):
+  • third, 33%, thirty-three percent, one-third, 1/3
+
+- Words meaning "quarter" (scaling factor: 0.25):
+  • quarter, 25%, twenty-five percent, one-fourth, fourth
+
+- Specific numbers (scaling factor: -1):
+  • Any numerical value (e.g., 1.5, 10, 100)
+  • Numbers with k/m suffix (e.g., 1k = 1000)
+
+Examples:
+- "swap all my ETH to SUI" → {
+    inputTokenType: "ETH",
+    outputTokenType: "SUI",
+    amountScalingFactor: 1.0
+}
+- "buy BTC from half of SUI I have" → {
+    inputTokenType: "SUI",
+    outputTokenType: "BTC",
+    amountScalingFactor: 0.5
+}
+- "convert one third of my SUI to USDC" → {
+    inputTokenType: "SUI",
+    outputTokenType: "USDC",
+    amountScalingFactor: 0.333
+}
 
 {{recentMessages}}
 
@@ -86,8 +121,8 @@ THIS IS A SWAP/EXCHANGE ACTION, NOT A SEND/TRANSFER ACTION.
 
 Key phrases to identify a swap (not a transfer):
 - "sell X to/for Y" (this means swap X for Y, not transfer X)
-- "buy X with Y"
-- "swap X for Y"
+- "buy X with Y" or "buy X from Y"
+- "swap X for Y" or "swap X to Y"
 - "exchange X to Y"
 - "convert X to Y"
 - "trade X for Y"
@@ -95,22 +130,11 @@ Key phrases to identify a swap (not a transfer):
 Extract:
 - Input token (the token being sold/swapped)
 - Output token (the token being bought/received)
-- Amount to swap
+- Amount to swap (look for words indicating portions or specific numbers)
 - Slippage tolerance if specified (default 50 bps)
+- Amount scaling factor based on the word patterns above
 
-Amount patterns to recognize:
-- Specific numbers: "1.5", "10", "100"
-- Words: "one", "two", "half"
-- Special amounts: "all", "max"
-- Suffixes: "k" (1k = 1000)
-
-Examples of valid swap requests:
-- "sell all my SUI to ETH" (This is a swap from SUI to ETH)
-- "sell 10 SUI for USDC" (This is a swap from SUI to USDC)
-- "swap 1.5 SUI for ETH"
-- "buy 100 USDC with SUI"
-- "convert all my SUI to ETH"
-`;
+Focus on understanding the intent of the amount description rather than matching exact phrases. Consider the context and natural language variations.`;
 
 // async function getTokensInWallet(runtime: IAgentRuntime) {
 //     const address = await getWalletAddress(runtime);
@@ -152,14 +176,13 @@ export const executeSwap: Action = {
         _options: { [key: string]: unknown },
         callback?: HandlerCallback
     ): Promise<boolean> => {
+        const walletAddress =
+            "0x3b2fb00f5cf3f4b948ee437e8d8a3d0db37f91cb0b94526e38b414a3881479ea";
         if (!state) {
             state = (await runtime.composeState(message)) as State;
         } else {
             state = await runtime.updateRecentMessageState(state);
         }
-
-        const walletInfo = await walletProvider.get(runtime, message, state);
-        state.walletInfo = walletInfo;
 
         const swapContext = composeContext({
             state,
@@ -169,7 +192,7 @@ export const executeSwap: Action = {
         const response = await generateObjectDeprecated({
             runtime,
             context: swapContext,
-            modelClass: ModelClass.LARGE,
+            modelClass: ModelClass.MEDIUM,
         });
 
         if (!response.inputTokenType || !response.outputTokenType) {
@@ -180,22 +203,70 @@ export const executeSwap: Action = {
             return true;
         }
 
-        if (!response.amount) {
-            const responseMsg = {
-                text: "I need the amount to perform the swap",
-            };
-            callback?.(responseMsg);
-            return true;
-        }
-
-        console.log("response", response);
+        const inputTokenDetails = await getTokenDetails(
+            response.inputTokenType.toUpperCase() === "SUI"
+                ? "0x2::sui::SUI"
+                : response.inputTokenType
+        );
+        const outputTokenDetails = await getTokenDetails(
+            response.outputTokenType.toUpperCase() === "SUI"
+                ? "0x2::sui::SUI"
+                : response.outputTokenType
+        );
+        response.inputTokenType = inputTokenDetails;
+        response.outputTokenType = outputTokenDetails;
 
         try {
-            // Create SuiClient with mainnet URL
             const client = new SuiClient({
-                url: getFullnodeUrl("mainnet"),
+                url: "https://fullnode.mainnet.sui.io:443",
             });
-            const walletAddress = await getWalletAddress(runtime);
+
+            // Fetch balance and calculate amount if needed
+            if (
+                (!response.amount || response.amount === null) &&
+                response.amountScalingFactor !== -1
+            ) {
+                const coinType =
+                    response.inputTokenType.toUpperCase() === "SUI"
+                        ? SUI_TYPE_ARG
+                        : response.inputTokenType;
+                const balance = await client.getBalance({
+                    owner: walletAddress,
+                    coinType,
+                });
+
+                // Calculate final amount based on scaling factor using BigInt
+                const scaledBalance =
+                    (BigInt(balance.totalBalance) *
+                        BigInt(
+                            Math.floor(response.amountScalingFactor * 1000000)
+                        )) /
+                    BigInt(1000000);
+                response.amount = scaledBalance.toString();
+
+                elizaLogger.log("Amount calculation from balance:", {
+                    balance,
+                    scalingFactor: response.amountScalingFactor,
+                    calculatedAmount: response.amount,
+                    tokenType: coinType,
+                });
+
+                if (response.amount <= 0) {
+                    const errorMsg = {
+                        text: `Insufficient balance (${balance} ${response.inputTokenType}) for the swap`,
+                    };
+                    callback?.(errorMsg);
+                    return false;
+                }
+            }
+
+            if (!response.amount || response.amount <= 0) {
+                const errorMsg = {
+                    text: "Invalid amount for swap. Please specify a valid amount.",
+                };
+                callback?.(errorMsg);
+                return false;
+            }
 
             const { tx, route } = await swapToken(
                 client,
