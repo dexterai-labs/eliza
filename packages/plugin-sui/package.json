@@ -26,7 +26,10 @@
         "bignumber.js": "9.1.2",
         "node-cache": "5.1.2",
         "tsup": "8.3.5",
-        "vitest": "2.1.4"
+        "vitest": "2.1.4",
+        "mongodb": "^6.3.0",
+        "@types/mongodb": "^4.0.7",
+        "aftermath-ts-sdk": "^1.2.45"
     },
     "scripts": {
         "build": "tsup --format esm --dts",

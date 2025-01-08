@@ -230,7 +230,7 @@ const walletProvider: Provider = {
             });
             const provider = new WalletProvider(
                 suiClient,
-                suiAccount.toSuiAddress(),
+                suiAccount,
                 runtime.cacheManager
             );
             return await provider.getFormattedPortfolio(runtime);

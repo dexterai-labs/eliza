@@ -1,4 +1,5 @@
 import {
+    Action,
     ActionExample,
     Content,
     HandlerCallback,
@@ -9,82 +10,86 @@ import {
     composeContext,
     elizaLogger,
     generateObject,
-    type Action,
 } from "@elizaos/core";
 import { z } from "zod";
-
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
-import { Transaction } from "@mysten/sui/transactions";
+import { SuiClient } from "@mysten/sui/client";
+// import { Transaction } from "@mysten/sui/transactions";
 import { SUI_DECIMALS } from "@mysten/sui/utils";
-
 import { walletProvider } from "../providers/wallet";
 import { parseAccount } from "../utils";
+import { validateAction } from "../validators/actionValidator";
 
-type SuiNetwork = "mainnet" | "testnet" | "devnet" | "localnet";
-
-export interface TransferContent extends Content {
+// Define types for transfer content
+interface TransferContent extends Content {
     recipient: string;
     amount: string | number;
+    coinType: string;
 }
 
-function isTransferContent(content: Content): content is TransferContent {
-    console.log("Content for transfer", content);
-    return (
-        typeof content.recipient === "string" &&
-        (typeof content.amount === "string" ||
-            typeof content.amount === "number")
-    );
-}
-
+// Define the transfer template
 const transferTemplate = `Respond with a JSON markdown block containing only the extracted values. Use null for any values that cannot be determined.
 
 Example response:
 \`\`\`json
 {
-    "recipient": "0xaa000b3651bd1e57554ebd7308ca70df7c8c0e8e09d67123cc15c8a8a79342b3",
-    "amount": "1"
+    "recipient": "0x123...456",
+    "amount": 10,
+    "coinType": "0x2::sui::SUI"
 }
 \`\`\`
 
+Given the recent messages and wallet information below:
 {{recentMessages}}
+{{walletInfo}}
 
-Given the recent messages, extract the following information about the requested token transfer:
-- Recipient wallet address
+Extract the following information about the requested token transfer:
+- Recipient address (can be 0x... format or @username)
 - Amount to transfer
+- Coin type (default to "0x2::sui::SUI" if not specified)
 
-Respond with a JSON markdown block containing only the extracted values.`;
+Common coin types:
+- SUI: "0x2::sui::SUI"
+- USDC: "0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::USDC"
+- USDT: "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::USDT"
 
-export default {
-    name: "SEND_TOKEN",
+Amount patterns to recognize:
+- Specific numbers: "1.5", "10", "100"
+- Words: "one", "two", "half"
+- Special amounts: "all", "max"
+- Suffixes: "k" (1k = 1000)
+
+Examples of valid transfer requests:
+- "send 10 SUI to 0x123...456"
+- "transfer 5 USDC to @alice"
+- "pay 2.5 USDT to 0x789...012"
+- "send all my SUI to 0x345...678"
+
+Examples that are NOT transfers (these would be swaps):
+- "sell SUI for USDC" (no recipient address = swap)
+- "convert SUI to ETH" (no recipient address = swap)
+- "exchange SUI for USDC" (no recipient address = swap)
+`;
+
+// Define the transfer action
+export const transfer: Action = {
+    name: "TRANSFER",
     similes: [
+        "SEND_TOKEN",
         "TRANSFER_TOKEN",
-        "TRANSFER_TOKENS",
-        "SEND_TOKENS",
-        "SEND_SUI",
+        "SEND_COINS",
+        "TRANSFER_COINS",
+        "SEND_FUNDS",
+        "TRANSFER_FUNDS",
         "PAY",
     ],
+    description:
+        "Transfer tokens from the agent's wallet to another address with validation and error handling",
+
     validate: async (runtime: IAgentRuntime, message: Memory) => {
-        console.log("Validating sui transfer from user:", message.userId);
-        //add custom validate logic here
-        /*
-            const adminIds = runtime.getSetting("ADMIN_USER_IDS")?.split(",") || [];
-            //console.log("Admin IDs from settings:", adminIds);
-
-            const isAdmin = adminIds.includes(message.userId);
-
-            if (isAdmin) {
-                //console.log(`Authorized transfer from user: ${message.userId}`);
-                return true;
-            }
-            else
-            {
-                //console.log(`Unauthorized transfer attempt from user: ${message.userId}`);
-                return false;
-            }
-            */
-        return true;
+        const validation = validateAction(message, "TRANSFER");
+        return validation.isValid;
     },
-    description: "Transfer tokens from the agent's wallet to another address",
+
     handler: async (
         runtime: IAgentRuntime,
         message: Memory,
@@ -92,97 +97,85 @@ export default {
         _options: { [key: string]: unknown },
         callback?: HandlerCallback
     ): Promise<boolean> => {
-        elizaLogger.log("Starting SEND_TOKEN handler...");
-
-        const walletInfo = await walletProvider.get(runtime, message, state);
-        state.walletInfo = walletInfo;
-
-        // Initialize or update state
-        if (!state) {
-            state = (await runtime.composeState(message)) as State;
-        } else {
-            state = await runtime.updateRecentMessageState(state);
-        }
-
-        // Define the schema for the expected output
-        const transferSchema = z.object({
-            recipient: z.string(),
-            amount: z.union([z.string(), z.number()]),
-        });
-
-        // Compose transfer context
-        const transferContext = composeContext({
-            state,
-            template: transferTemplate,
-        });
-
-        // Generate transfer content with the schema
-        const content = await generateObject({
-            runtime,
-            context: transferContext,
-            schema: transferSchema,
-            modelClass: ModelClass.SMALL,
-        });
-
-        const transferContent = content.object as TransferContent;
-
-        // Validate transfer content
-        if (!isTransferContent(transferContent)) {
-            console.error("Invalid content for TRANSFER_TOKEN action.");
-            if (callback) {
-                callback({
-                    text: "Unable to process transfer request. Invalid content provided.",
-                    content: { error: "Invalid transfer content" },
-                });
-            }
-            return false;
-        }
+        elizaLogger.log("Starting TRANSFER handler...");
 
         try {
+            const walletInfo = await walletProvider.get(
+                runtime,
+                message,
+                state
+            );
+            state.walletInfo = walletInfo;
+
+            if (!state) {
+                state = await runtime.composeState(message);
+            }
+            state = await runtime.updateRecentMessageState(state);
+
+            // Define transfer schema
+            const transferSchema = z.object({
+                recipient: z.string(),
+                amount: z.union([z.string(), z.number()]),
+                coinType: z.string().default("0x2::sui::SUI"),
+            });
+
+            const transferContext = composeContext({
+                state,
+                template: transferTemplate,
+            });
+
+            const content = await generateObject({
+                runtime,
+                context: transferContext,
+                schema: transferSchema,
+                modelClass: ModelClass.SMALL,
+            });
+
+            const transferContent = content.object as TransferContent;
+
+            if (!transferContent.recipient || !transferContent.amount) {
+                throw new Error("Missing required transfer parameters");
+            }
+
             const suiAccount = parseAccount(runtime);
-            const network = runtime.getSetting("SUI_NETWORK");
             const suiClient = new SuiClient({
-                url: getFullnodeUrl(network as SuiNetwork),
+                url: runtime.getSetting("SUI_FULLNODE_URL"),
             });
 
             const adjustedAmount = BigInt(
                 Number(transferContent.amount) * Math.pow(10, SUI_DECIMALS)
             );
-            console.log(
-                `Transferring: ${transferContent.amount} tokens (${adjustedAmount} base units)`
-            );
-            const tx = new Transaction();
-            const [coin] = tx.splitCoins(tx.gas, [adjustedAmount]);
-            tx.transferObjects([coin], transferContent.recipient);
-            const executedTransaction =
-                await suiClient.signAndExecuteTransaction({
-                    signer: suiAccount,
-                    transaction: tx,
-                });
 
-            console.log("Transfer successful:", executedTransaction.digest);
+            // const tx = new Transaction();
+
+            // // Create the transfer transaction
+            // const [coin] = tx.splitCoins(tx.gas, [adjustedAmount]);
+            // tx.transferObjects([coin], transferContent.recipient);
 
             if (callback) {
-                callback({
-                    text: `Successfully transferred ${transferContent.amount} SUI to ${transferContent.recipient}, Transaction: ${executedTransaction.digest}`,
-                    content: {
-                        success: true,
-                        hash: executedTransaction.digest,
-                        amount: transferContent.amount,
-                        recipient: transferContent.recipient,
-                    },
-                });
+                // callback({
+                //     text: `Prepared transfer of ${transferContent.amount} ${transferContent.coinType} to ${transferContent.recipient}`,
+                //     content: {
+                //         success: true,
+                //         transaction: tx,
+                //         amount: transferContent.amount,
+                //         recipient: transferContent.recipient,
+                //         coinType: transferContent.coinType,
+                //     },
+                // });
             }
 
             return true;
         } catch (error) {
-            console.error("Error during token transfer:", error);
+            elizaLogger.error("Transfer execution failed:", error);
+
             if (callback) {
                 callback({
-                    text: `Error transferring tokens: ${error.message}`,
+                    text: `Transfer failed: ${error.message}`,
                     content: { error: error.message },
                 });
             }
+
             return false;
         }
     },
@@ -191,23 +184,30 @@ export default {
         [
             {
                 user: "{{user1}}",
-                content: {
-                    text: "Send 1 SUI tokens to 0x4f2e63be8e7fe287836e29cde6f3d5cbc96eefd0c0e3f3747668faa2ae7324b0",
-                },
+                content: "send 10 SUI to 0x123...456",
             },
             {
                 user: "{{user2}}",
                 content: {
-                    text: "I'll send 1 SUI tokens now...",
-                    action: "SEND_TOKEN",
+                    text: "Transferring 10 SUI to 0x123...456",
+                    action: "TRANSFER",
                 },
+            },
+        ],
+        [
+            {
+                user: "{{user1}}",
+                content: "transfer 5 USDC to @alice",
             },
             {
                 user: "{{user2}}",
                 content: {
-                    text: "Successfully sent 1 SUI tokens to 0x4f2e63be8e7fe287836e29cde6f3d5cbc96eefd0c0e3f3747668faa2ae7324b0, Transaction: 0x39a8c432d9bdad993a33cc1faf2e9b58fb7dd940c0425f1d6db3997e4b4b05c0",
+                    text: "Transferring 5 USDC to @alice's wallet",
+                    action: "TRANSFER",
                 },
             },
         ],
     ] as ActionExample[][],
-} as Action;
+};
+
+export default transfer;

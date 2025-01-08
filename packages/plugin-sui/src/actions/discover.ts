@@ -4,9 +4,12 @@ import {
     composeContext,
     generateObject,
     Clients,
+    IAgentRuntime,
+    Memory,
 } from "@elizaos/core";
 import { z } from "zod";
 import { MongoClient } from "mongodb";
+import { validateAction } from "../validators/actionValidator";
 
 // Add MongoDB connection configuration
 const MONGODB_URI =
@@ -101,12 +104,9 @@ const discoverCoins: Action = {
         "COIN_DISCOVERY",
     ],
 
-    validate: async (runtime, message) => {
-        console.log(
-            "Validating coin discovery request from user:",
-            message.userId
-        );
-        return true;
+    validate: async (runtime: IAgentRuntime, message: Memory) => {
+        const validation = validateAction(message, "DISCOVER_COINS");
+        return validation.isValid;
     },
 
     description:
@@ -161,14 +161,8 @@ const discoverCoins: Action = {
                 message: `Found ${results.length} coins matching your criteria.`,
             };
 
-            // Post to Twitter if the client is available
-            const twitterClient = new TwitterClient({
-                bearerToken: process.env.TWITTER_BEARER_TOKEN,
-                consumerKey: process.env.TWITTER_API_KEY,
-                consumerSecret: process.env.TWITTER_API_SECRET,
-                accessToken: process.env.TWITTER_ACCESS_TOKEN,
-                accessTokenSecret: process.env.TWITTER_ACCESS_TOKEN_SECRET,
-            });
+            // Use the Clients system instead of direct Twitter client initialization
+            const twitterClient = runtime.clients.get("twitter");
             if (twitterClient) {
                 try {
                     const tweetThreads = formatTwitterThread(results);
@@ -176,14 +170,17 @@ const discoverCoins: Action = {
 
                     for (const tweetContent of tweetThreads) {
                         if (!parentTweetId) {
-                            const tweet =
-                                await twitterClient.tweet(tweetContent);
+                            const tweet = await twitterClient.tweet({
+                                text: tweetContent,
+                            });
                             parentTweetId = tweet.id;
                         } else {
-                            await twitterClient.reply(
-                                tweetContent,
-                                parentTweetId
-                            );
+                            await twitterClient.reply({
+                                text: tweetContent,
+                                reply: {
+                                    in_reply_to_tweet_id: parentTweetId,
+                                },
+                            });
                         }
                     }
 
