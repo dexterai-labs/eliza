@@ -127,21 +127,23 @@ const discoverCoins: Action = {
                 state,
                 template: discoveryTemplate,
             });
-
+            console.log("context", context);
+            console.log("state", state);
             const discoveryParams = await generateObject({
                 runtime,
                 context,
                 schema: discoveryParamsSchema,
-                modelClass: ModelClass.SMALL,
+                modelClass: ModelClass.MEDIUM,
             });
 
             const query = buildMongoQuery(discoveryParams.object);
-            const sortObject = buildSortQuery(discoveryParams.object.sort);
-
+            const sortObject = buildSortQuery(discoveryParams.object);
+            console.log("query", query);
+            console.log("sortObject", sortObject);
             const results = await scoresCollection
                 .find(query)
                 .sort(sortObject)
-                .limit(discoveryParams.object.limit)
+                .limit(10) /// todo: remove hardcoded limit
                 .toArray();
 
             const response = {
@@ -160,36 +162,6 @@ const discoverCoins: Action = {
                 count: results.length,
                 message: `Found ${results.length} coins matching your criteria.`,
             };
-
-            // Use the Clients system instead of direct Twitter client initialization
-            const twitterClient = runtime.clients.get("twitter");
-            if (twitterClient) {
-                try {
-                    const tweetThreads = formatTwitterThread(results);
-                    let parentTweetId: string | undefined;
-
-                    for (const tweetContent of tweetThreads) {
-                        if (!parentTweetId) {
-                            const tweet = await twitterClient.tweet({
-                                text: tweetContent,
-                            });
-                            parentTweetId = tweet.id;
-                        } else {
-                            await twitterClient.reply({
-                                text: tweetContent,
-                                reply: {
-                                    in_reply_to_tweet_id: parentTweetId,
-                                },
-                            });
-                        }
-                    }
-
-                    response.twitterThread = `https://twitter.com/user/status/${parentTweetId}`;
-                } catch (twitterError) {
-                    console.error("Error posting to Twitter:", twitterError);
-                    response.twitterError = "Failed to post to Twitter";
-                }
-            }
 
             if (callback) {
                 await callback(response);
@@ -254,7 +226,7 @@ const discoverCoins: Action = {
 // Helper function to build MongoDB query from discovery parameters
 function buildMongoQuery(params: z.infer<typeof discoveryParamsSchema>) {
     const query: any = {};
-
+    console.log("params", params);
     // Only add filters if the values are not null/undefined
     if (params.minHqs != null || params.maxHqs != null) {
         query.holderQualityScore = {};
@@ -291,6 +263,17 @@ function formatDiscoveryResults(results: any[]) {
         .join("\n\n");
 
     return `Found ${results.length} coins matching your criteria:\n\n${formattedResults}`;
+}
+
+function buildSortQuery(params: z.infer<typeof discoveryParamsSchema>) {
+    const sortField = params.sortBy;
+    const sortMapping = {
+        hqs: { holderQualityScore: -1 },
+        volume: { volumeMean: -1 },
+        marketCap: { marketCap: -1 },
+    };
+
+    return sortMapping[sortField] || { holderQualityScore: -1 };
 }
 
 export default discoverCoins;

@@ -7,6 +7,13 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import "./App.css";
 
+export type TextResponse = {
+    text: string;
+    user: string;
+    data?: Record<string, any>;
+    attachments?: { url: string; contentType: string; title: string }[];
+};
+
 export default function Chat() {
     const { agentId } = useParams();
     const [input, setInput] = useState("");
@@ -73,6 +80,7 @@ export default function Chat() {
                                     }`}
                                 >
                                     {message.text}
+
                                     {message.attachments?.map((attachment, i) => (
                                         attachment.contentType.startsWith('image/') && (
                                             <img
@@ -88,7 +96,15 @@ export default function Chat() {
                                             />
                                         )
                                     ))}
-                                 </pre>
+
+                                    {message.data && (
+                                        <div className="mt-2 text-sm border-t pt-2 text-muted-foreground">
+                                            <pre className="whitespace-pre-wrap overflow-x-auto">
+                                                {JSON.stringify(message.data, null, 2)}
+                                            </pre>
+                                        </div>
+                                    )}
+                                </pre>
                             </div>
                         ))
                     ) : (
