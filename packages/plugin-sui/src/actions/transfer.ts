@@ -15,7 +15,7 @@ import { z } from "zod";
 import { SuiClient } from "@mysten/sui/client";
 // import { Transaction } from "@mysten/sui/transactions";
 import { SUI_DECIMALS } from "@mysten/sui/utils";
-import { walletProvider } from "../providers/wallet";
+import { walletProvider } from "../providers/walletProvider";
 import { parseAccount } from "../utils";
 import { validateAction } from "../validators/actionValidator";
 

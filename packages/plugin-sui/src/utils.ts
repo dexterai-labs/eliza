@@ -127,8 +127,24 @@ export async function retry<T>(
 }
 
 export async function getTokenDetails(tokenType: string): Promise<string> {
+    // Check if the token type is already in fully qualified format
+    if (/^0x[a-fA-F0-9]{64}::[a-zA-Z0-9_]+::[a-zA-Z0-9_]+$/.test(tokenType)) {
+        return tokenType;
+    }
+
+    // Convert to lowercase for case-insensitive comparison
+    const normalizedTokenType = tokenType.toLowerCase();
+
+    // Return SUI coin type directly if token is SUI
+    if (
+        normalizedTokenType === "sui" ||
+        normalizedTokenType === "0x2::sui::sui"
+    ) {
+        return COIN_TYPES.SUI;
+    }
+
     try {
-        // Make API call
+        // Make API call for non-SUI tokens
         const response = await fetch(
             `https://api.insidex.trade/external/query/${tokenType}`
         );
@@ -144,9 +160,7 @@ export async function getTokenDetails(tokenType: string): Promise<string> {
 
         // Get first coin entry and construct coinType
         const firstCoin = coinEntries[0];
-        const coinType = firstCoin.coinType;
-
-        return coinType;
+        return firstCoin.coinType;
     } catch (error) {
         console.error("Error fetching token details:", error);
         throw error;

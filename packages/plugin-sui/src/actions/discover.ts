@@ -16,85 +16,76 @@ const MONGODB_URI =
     "mongodb+srv://raju:XaD02mpcMMLMrE0y@insidex-cluster-prod.99w3k.mongodb.net/?retryWrites=false&w=majority&appName=insidex-cluster-prod";
 const DB_NAME = "advanced-scores";
 
-// Define the schema for coin discovery parameters
+// Simplified schema focusing only on sorting
 const discoveryParamsSchema = z.object({
-    minHqs: z.number().optional().nullable(),
-    maxHqs: z.number().optional().nullable(),
-    minMarketCap: z.number().optional().nullable(),
-    maxMarketCap: z.number().optional().nullable(),
-    minVolume: z.number().optional().nullable(),
-    maxVolume: z.number().optional().nullable(),
-    priceChange: z
-        .enum(["increasing", "decreasing", "stable"])
-        .optional()
-        .nullable(),
-    timeframe: z.enum(["24h", "7d", "30d"]).optional().nullable(),
-    limit: z.number().min(1).max(50).default(10),
-    sortBy: z.enum(["hqs", "volume", "marketCap"]).default("hqs"),
+    sortBy: z
+        .enum([
+            "holderQualityScore",
+            "volumeMean",
+            "liqMean",
+            "uniqueUsersMean",
+            "averageAgeOfHolders",
+        ])
+        .default("holderQualityScore"),
+    sortDirection: z.enum(["asc", "desc"]).default("desc"),
+    limit: z.number().min(1).max(10).default(5),
 });
 
-// Template for extracting discovery parameters from user messages
-const discoveryTemplate = `Respond with a JSON markdown block containing only the extracted values. Use null for any values that cannot be determined.
+const discoveryTemplate = `Analyze the user's message to determine sorting metrics and direction. Map the intent as follows:
 
-Example response:
+1. Volume-Related Metrics (volumeMean):
+   - High: "most traded", "highest volume", "active trading", "busy", "hot"
+   - Low: "least traded", "lowest volume", "quiet", "under the radar"
+
+2. Liquidity Metrics (liqMean):
+   - High: "most liquid", "easily tradeable", "high liquidity", "deep markets"
+   - Low: "illiquid", "least liquid", "thin markets"
+
+3. Holder Quality (holderQualityScore):
+   - High: "best quality", "strongest holders", "diamond hands", "high conviction"
+   - Low: "weak holders", "paper hands", "low quality"
+
+4. User Base (uniqueUsersMean):
+   - High: "most popular", "widely held", "most holders", "community favorite"
+   - Low: "niche coins", "exclusive", "fewer holders"
+
+5. Holder Age (averageAgeOfHolders):
+   - High: "oldest holders", "long-term holders", "mature base", "stable holders"
+   - Low: "new holders", "fresh money", "recent adopters"
+
+Direction is determined by:
+- Ascending (asc): never
+- Descending (desc): "highest", "most", "largest", "strongest", "top"
+
+Example interpretations:
+- "Show me the most traded coins" → { "sortBy": "volumeMean", "sortDirection": "desc" }
+- "Which coins have diamond hand holders?" → { "sortBy": "holderQualityScore", "sortDirection": "desc" }
+- "Which coins are community favorites?" → { "sortBy": "uniqueUsersMean", "sortDirection": "desc" }
+- "Show me coins with deep markets" → { "sortBy": "liqMean", "sortDirection": "desc" }
+- "Get top coins by volume" → { "sortBy": "volumeMean", "sortDirection": "desc" }
+- "Get top coins by holder quality" → { "sortBy": "holderQualityScore", "sortDirection": "desc" }
+- "Get top coins by liquidity" → { "sortBy": "liqMean", "sortDirection": "desc" }
+- "Get top coins by unique users" → { "sortBy": "uniqueUsersMean", "sortDirection": "desc" }
+- "Get top coins by holder age" → { "sortBy": "averageAgeOfHolders", "sortDirection": "desc" }
+
+Additional keywords for top metrics:
+- "top by [metric]"
+- "best by [metric]"
+- "highest by [metric]"
+- "leading by [metric]"
+- "ranked by [metric]"
+
+Respond with a JSON markdown block:
 \`\`\`json
 {
-    "minHqs": 80,
-    "maxHqs": null,
-    "minMarketCap": 1000000,
-    "maxMarketCap": null,
-    "minVolume": 50000,
-    "maxVolume": null,
-    "priceChange": "increasing",
-    "timeframe": "24h",
-    "limit": 10,
-    "sortBy": "hqs"
+    "sortBy": "holderQualityScore",
+    "sortDirection": "desc",
+    "limit": 10
 }
 \`\`\`
+`;
 
-Given the recent messages, extract the following information about coin discovery:
-- Minimum and maximum HQS (Holder Quality Score)
-- Minimum and maximum market cap
-- Minimum and maximum volume
-- Price trend (increasing/decreasing/stable)
-- Timeframe for analysis
-- Number of results to return
-- Sorting criteria
-
-Respond with a JSON markdown block containing only the extracted values.`;
-
-function formatTwitterThread(results: any[]) {
-    if (!results.length) {
-        return ["No coins found matching your criteria."];
-    }
-
-    const threads: string[] = [];
-    let currentThread = `🔍 Sui Coin Discovery Report\n\n`;
-
-    results.forEach((coin, index) => {
-        const coinTweet =
-            `${index + 1}. ${coin.coin}\n` +
-            `📊 HQS: ${coin.holderQualityScore.toFixed(2)}\n` +
-            `💰 Vol(24h): $${coin.volumeMean.toFixed(2)}\n` +
-            `💧 Liq Score: ${coin.liqScore.toFixed(2)}\n` +
-            `👥 Users: ${coin.uniqueUsersMean}\n\n`;
-
-        if ((currentThread + coinTweet).length > 280) {
-            threads.push(currentThread);
-            currentThread = coinTweet;
-        } else {
-            currentThread += coinTweet;
-        }
-    });
-
-    if (currentThread) {
-        threads.push(currentThread);
-    }
-
-    return threads;
-}
-
-const discoverCoins: Action = {
+export default {
     name: "DISCOVER_COINS",
     similes: [
         "FIND_COINS",
@@ -105,12 +96,11 @@ const discoverCoins: Action = {
     ],
 
     validate: async (runtime: IAgentRuntime, message: Memory) => {
-        const validation = validateAction(message, "DISCOVER_COINS");
-        return validation.isValid;
+        return true;
     },
 
     description:
-        "Discover and analyze coins based on various metrics including HQS, market cap, volume, and price trends",
+        "Discover, find and analyze coins based on various metrics including HQS, market cap, volume, and price trends, tradring activity, and more",
 
     handler: async (runtime, message, state, _options, callback) => {
         console.log("Starting DISCOVER_COINS handler...");
@@ -127,8 +117,7 @@ const discoverCoins: Action = {
                 state,
                 template: discoveryTemplate,
             });
-            console.log("context", context);
-            console.log("state", state);
+
             const discoveryParams = await generateObject({
                 runtime,
                 context,
@@ -136,19 +125,22 @@ const discoverCoins: Action = {
                 modelClass: ModelClass.MEDIUM,
             });
 
-            const query = buildMongoQuery(discoveryParams.object);
-            const sortObject = buildSortQuery(discoveryParams.object);
-            console.log("query", query);
-            console.log("sortObject", sortObject);
+            const query = buildDatabaseQuery(discoveryParams.object);
+            console.log("MongoDB Query:", query);
             const results = await scoresCollection
-                .find(query)
-                .sort(sortObject)
-                .limit(10) /// todo: remove hardcoded limit
+                .find({}) // Empty filter to get all documents
+                .sort(query.sort)
+                .limit(query.limit)
                 .toArray();
 
+            const formattedResults = results
+                .map((coin) =>
+                    formatCoinDetails(coin, discoveryParams.object.sortBy)
+                )
+                .join("\n\n");
+
             const response = {
-                success: true,
-                data: results.map((coin) => ({
+                content: results.map((coin) => ({
                     coin: coin.coin,
                     holderQualityScore: Number(
                         coin.holderQualityScore.toFixed(2)
@@ -159,15 +151,14 @@ const discoverCoins: Action = {
                     holdersWithSuiNs: coin.holdersWithSuiNs,
                     averageAgeOfHolders: coin.averageAgeOfHolders,
                 })),
-                count: results.length,
-                message: `Found ${results.length} coins matching your criteria.`,
+                text: `📊 Found ${results.length} coins matching your criteria:\n\n${formattedResults}`,
             };
 
             if (callback) {
                 await callback(response);
             }
 
-            return response;
+            return true;
         } catch (error) {
             console.error("Error in coin discovery:", error);
             const errorResponse = {
@@ -187,93 +178,144 @@ const discoverCoins: Action = {
                 await mongoClient.close();
             }
         }
+
+        return false;
     },
 
     examples: [
+        // Quality Score examples
         [
             {
                 user: "{{user1}}",
                 content: {
-                    text: "Find coins with HQS above 80 and increasing price in the last 24 hours",
-                    action: "DISCOVER_COINS",
+                    text: "Show me the highest quality coins",
                 },
             },
             {
                 user: "{{user2}}",
                 content: {
-                    text: "I found 5 coins matching your criteria:\n1. Coin A (HQS: 85, +15% 24h)\n2. Coin B (HQS: 82, +10% 24h)\n3. Coin C (HQS: 81, +8% 24h)\n...",
+                    text: "📊 Found 10 coins matching your criteria:\n\n🪙 COIN_A\n• Holder Quality Score: 92.45\n• 24h Volume: 150000\n• Liquidity Score: 85.32\n• Unique Users: 2500\n• Holders with SUI Names: 450\n• Avg. Holder Age: 45 days\n\n🪙 COIN_B\n...",
+                    action: "DISCOVER_COINS",
                 },
             },
         ],
+        // Volume examples
         [
             {
                 user: "{{user1}}",
                 content: {
-                    text: "Show me the top 10 coins by market cap with minimum volume of 50k",
-                    action: "DISCOVER_COINS",
+                    text: "Which coins have the most active trading?",
                 },
             },
             {
                 user: "{{user2}}",
                 content: {
-                    text: "Here are the top 10 coins by market cap with 50k+ volume:\n1. Coin X ($10M mcap, $100k vol)\n2. Coin Y ($8M mcap, $80k vol)\n...",
+                    text: "📊 Found 10 coins matching your criteria:\n\n🪙 COIN_X\n• Holder Quality Score: 75.21\n• 24h Volume: 890000\n• Liquidity Score: 92.15\n• Unique Users: 3200\n• Holders with SUI Names: 620\n• Avg. Holder Age: 30 days\n\n🪙 COIN_Y\n...",
+                    action: "DISCOVER_COINS",
+                },
+            },
+        ],
+        // Liquidity examples
+        [
+            {
+                user: "{{user1}}",
+                content: {
+                    text: "Find coins with the best liquidity",
+                },
+            },
+            {
+                user: "{{user2}}",
+                content: {
+                    text: "📊 Found 10 coins matching your criteria:\n\n🪙 COIN_M\n• Holder Quality Score: 82.31\n• 24h Volume: 250000\n• Liquidity Score: 95.67\n• Unique Users: 1800\n• Holders with SUI Names: 380\n• Avg. Holder Age: 28 days\n\n🪙 COIN_N\n...",
+                    action: "DISCOVER_COINS",
+                },
+            },
+        ],
+        // Unique Users examples
+        [
+            {
+                user: "{{user1}}",
+                content: {
+                    text: "Show me the most popular coins by user count",
+                },
+            },
+            {
+                user: "{{user2}}",
+                content: {
+                    text: "📊 Found 10 coins matching your criteria:\n\n🪙 COIN_P\n• Holder Quality Score: 88.12\n• 24h Volume: 420000\n• Liquidity Score: 87.45\n• Unique Users: 5200\n• Holders with SUI Names: 890\n• Avg. Holder Age: 35 days\n\n🪙 COIN_Q\n...",
+                    action: "DISCOVER_COINS",
+                },
+            },
+        ],
+        // Holder Age examples
+        [
+            {
+                user: "{{user1}}",
+                content: {
+                    text: "Which coins have the most mature holder base?",
+                },
+            },
+            {
+                user: "{{user2}}",
+                content: {
+                    text: "📊 Found 10 coins matching your criteria:\n\n🪙 COIN_R\n• Holder Quality Score: 91.24\n• 24h Volume: 180000\n• Liquidity Score: 83.56\n• Unique Users: 2800\n• Holders with SUI Names: 520\n• Avg. Holder Age: 120 days\n\n🪙 COIN_S\n...",
+                    action: "DISCOVER_COINS",
+                },
+            },
+        ],
+        // Reverse sort example
+        [
+            {
+                user: "{{user1}}",
+                content: {
+                    text: "Show me coins with the lowest trading volume",
+                },
+            },
+            {
+                user: "{{user2}}",
+                content: {
+                    text: "📊 Found 10 coins matching your criteria:\n\n🪙 COIN_T\n• Holder Quality Score: 65.34\n• 24h Volume: 5000\n• Liquidity Score: 45.23\n• Unique Users: 500\n• Holders with SUI Names: 80\n• Avg. Holder Age: 15 days\n\n🪙 COIN_U\n...",
+                    action: "DISCOVER_COINS",
                 },
             },
         ],
     ],
 };
 
-// Helper function to build MongoDB query from discovery parameters
-function buildMongoQuery(params: z.infer<typeof discoveryParamsSchema>) {
-    const query: any = {};
-    console.log("params", params);
-    // Only add filters if the values are not null/undefined
-    if (params.minHqs != null || params.maxHqs != null) {
-        query.holderQualityScore = {};
-        if (params.minHqs != null)
-            query.holderQualityScore.$gte = params.minHqs;
-        if (params.maxHqs != null)
-            query.holderQualityScore.$lte = params.maxHqs;
-    }
-
-    // Volume filter
-    if (params.minVolume != null || params.maxVolume != null) {
-        query.volumeMean = {};
-        if (params.minVolume != null) query.volumeMean.$gte = params.minVolume;
-        if (params.maxVolume != null) query.volumeMean.$lte = params.maxVolume;
-    }
-
-    return query;
+// Updated query builder for simplified parameters
+function buildDatabaseQuery(params: z.infer<typeof discoveryParamsSchema>) {
+    return {
+        sort: { [params.sortBy]: params.sortDirection === "desc" ? -1 : 1 },
+        limit: params.limit,
+    };
 }
 
-// Helper function to format discovery results
-function formatDiscoveryResults(results: any[]) {
-    if (!results.length) {
-        return "No coins found matching your criteria.";
-    }
-
-    const formattedResults = results
-        .map((coin, index) => {
-            return `${index + 1}. ${coin.coin}
-    - HQS: ${coin.holderQualityScore.toFixed(2)}
-    - Volume (24h): ${coin.volumeMean.toFixed(2)}
-    - Liquidity Score: ${coin.liqScore.toFixed(2)}
-    - Unique Users: ${coin.uniqueUsersMean}`;
-        })
-        .join("\n\n");
-
-    return `Found ${results.length} coins matching your criteria:\n\n${formattedResults}`;
-}
-
-function buildSortQuery(params: z.infer<typeof discoveryParamsSchema>) {
-    const sortField = params.sortBy;
-    const sortMapping = {
-        hqs: { holderQualityScore: -1 },
-        volume: { volumeMean: -1 },
-        marketCap: { marketCap: -1 },
+// Add new function
+function formatCoinDetails(coin: any, sortBy: string): string {
+    // Define the primary metric display format based on sortBy
+    const getPrimaryMetric = () => {
+        switch (sortBy) {
+            case "holderQualityScore":
+                return `🏆 HQS: ${Number(coin.holderQualityScore).toFixed(2)}`;
+            case "volumeMean":
+                return `📈 24h Volume: ${Number(coin.volumeMean).toFixed(2)}`;
+            case "liqMean":
+                return `💧 Liquidity: ${Number(coin.liqScore).toFixed(2)}`;
+            case "uniqueUsersMean":
+                return `👥 Users: ${coin.uniqueUsersMean}`;
+            case "averageAgeOfHolders":
+                return `⏳ Avg. Holder Age: ${coin.averageAgeOfHolders} days`;
+            default:
+                return `🏆 HQS: ${Number(coin.holderQualityScore).toFixed(2)}`;
+        }
     };
 
-    return sortMapping[sortField] || { holderQualityScore: -1 };
+    return `🪙 ${coin.coin} - ${getPrimaryMetric()}
+Other Metrics:
+  • HQS: ${Number(coin.holderQualityScore).toFixed(2)}
+  • Vol: ${Number(coin.volumeMean).toFixed(2)}
+  • Liq: ${Number(coin.liqScore).toFixed(2)}
+  • Users: ${coin.uniqueUsersMean}
+  • SuiNS Holders: ${coin.holdersWithSuiNs}
+  • Age: ${coin.averageAgeOfHolders}d`;
 }
-
-export default discoverCoins;

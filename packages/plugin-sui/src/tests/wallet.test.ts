@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { WalletProvider } from "../providers/wallet.ts";
+import { WalletProvider } from "../providers/walletProvider.ts";
 
 import { defaultCharacter } from "@elizaos/core";
 import BigNumber from "bignumber.js";
